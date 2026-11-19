@@ -51,7 +51,7 @@ public struct RootView: View {
             Text(model.message ?? "")
         }
         .onChange(of: phase) { _, p in
-            if p == .active { model.refresh() }
+            if p == .active { model.becameActive() }
         }
         .onAppear(perform: openFromLaunchArgument)
         .nordWindow()

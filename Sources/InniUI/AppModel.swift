@@ -53,6 +53,8 @@ public final class AppModel {
     public var syncUsername: String? { account?.username }
     public private(set) var syncing = false
     public private(set) var mediaSyncing = false
+    /// Media sync stopped on a network error; it continues the next time the app becomes active.
+    private var mediaSyncPending = false
     public var loginShown = false
     public var fullSyncChoice: FullSyncChoice?
 
@@ -67,7 +69,7 @@ public final class AppModel {
         let url = last.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? Self.defaultURL
         open(url, create: true)
         if account != nil, UserDefaults.standard.object(forKey: "syncOnOpen") as? Bool ?? true, !Self.isScreenshotRun {
-            Task { await sync() }
+            Task { await sync(quiet: true) }
         }
     }
 
@@ -307,7 +309,8 @@ public final class AppModel {
     }
 
     /// A normal sync; asks which way to go when only a one-way sync can continue.
-    public func sync() async {
+    /// `quiet` is for syncs the user didn't start: network failures are not reported.
+    public func sync(quiet: Bool = false) async {
         guard let col, !syncing, busy == nil else { return }
         guard let auth = account?.auth else {
             loginShown = true
@@ -321,6 +324,8 @@ public final class AppModel {
         }
         // The overlay keeps the UI off the collection until this returns.
         nonisolated(unsafe) let c = col
+        let background = BackgroundTime("Sync")
+        defer { background.end() }
         do {
             let out = try await c.sync(auth: auth)
             store(out.auth)
@@ -332,7 +337,16 @@ public final class AppModel {
             if !out.serverMessage.isEmpty { message = out.serverMessage }
             syncMedia(serverUSN: out.serverMediaUSN)
         } catch {
-            handle(error)
+            handle(error, quiet: quiet)
+        }
+    }
+
+    /// Picks up work a suspended app couldn't finish.
+    public func becameActive() {
+        refresh()
+        if mediaSyncPending {
+            mediaSyncPending = false
+            syncMedia(serverUSN: nil)
         }
     }
 
@@ -347,6 +361,8 @@ public final class AppModel {
             busy = nil
         }
         nonisolated(unsafe) let c = col
+        let background = BackgroundTime("Full sync")
+        defer { background.end() }
         do {
             if upload {
                 store(try await c.fullUpload(auth: auth))
@@ -371,21 +387,30 @@ public final class AppModel {
               UserDefaults.standard.object(forKey: "syncMedia") as? Bool ?? true else { return }
         mediaSyncing = true
         Task {
-            defer { mediaSyncing = false }
+            let background = BackgroundTime("Media sync")
+            defer {
+                background.end()
+                mediaSyncing = false
+            }
             do {
                 let media = try MediaSync(collectionURL: url, auth: auth)
                 try await media.sync(serverUSN: serverUSN)
                 revision += 1
             } catch {
-                handle(error)
+                if SyncError.isNetwork(error) { mediaSyncPending = true }
+                handle(error, quiet: true)
             }
         }
     }
 
-    private func handle(_ error: Error) {
+    private func handle(_ error: Error, quiet: Bool = false) {
         if case SyncError.authFailed = error {
             logout()
             loginShown = true
+        }
+        if SyncError.isNetwork(error) {
+            if !quiet { self.error = "Couldn't reach AnkiWeb: \(error.localizedDescription) Check the connection and sync again." }
+            return
         }
         self.error = error.localizedDescription
     }
@@ -393,5 +418,27 @@ public final class AppModel {
     public func requireFullSync() {
         perform { try $0.requireFullSync() }
         message = "The next sync will ask whether to upload or download the whole collection."
+    }
+}
+
+/// Asks iOS to keep the app running for a while if it is sent to the background mid-sync. Does nothing on macOS.
+@MainActor
+final class BackgroundTime {
+    #if os(iOS)
+    private var id = UIBackgroundTaskIdentifier.invalid
+    #endif
+
+    init(_ name: String) {
+        #if os(iOS)
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in self?.end() }
+        #endif
+    }
+
+    func end() {
+        #if os(iOS)
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
+        #endif
     }
 }

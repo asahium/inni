@@ -35,6 +35,14 @@ public enum SyncError: Error, LocalizedError, Equatable {
         case .uploadTooLarge(let m): return "The collection is too large to upload (\(m))."
         }
     }
+
+    /// Timeouts and dropped connections, including requests iOS cut off while the app was in the background.
+    public static func isNetwork(_ error: Error) -> Bool {
+        guard let e = error as? URLError else { return false }
+        let codes: [URLError.Code] = [.timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost,
+                                      .cannotFindHost, .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff]
+        return codes.contains(e.code)
+    }
 }
 
 /// One sync session against an endpoint: zstd-compressed JSON over POST with the `anki-sync` header.

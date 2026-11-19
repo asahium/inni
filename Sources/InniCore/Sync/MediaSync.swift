@@ -69,10 +69,24 @@ public final class MediaSync {
         return progress
     }
 
+    /// Media requests are safe to repeat, so a dropped connection gets two more tries.
+    private func post(_ path: String, _ body: Data) async throws -> Data {
+        var attempt = 0
+        while true {
+            do {
+                return try await http.post(path, body)
+            } catch where SyncError.isNetwork(error) && attempt < 2 {
+                attempt += 1
+                try await Task.sleep(for: .seconds(2 * attempt))
+            }
+        }
+    }
+
     /// Media endpoints wrap results as {"data": …, "err": ""}.
     private func call(_ path: String, _ body: Any) async throws -> Any {
         let raw = try body as? Data ?? Schema11.encode(body)
-        let reply = try await http.json(path, raw) as? JSONObject ?? [:]
+        let data = try await post(path, raw)
+        let reply = (data.isEmpty ? nil : try Schema11.decode(data)) as? JSONObject ?? [:]
         if let data = reply["data"], !(data is NSNull) { return data }
         let err = Schema11.string(reply["err"])
         throw SyncError.serverMessage(err.isEmpty ? "Media sync failed." : err)
@@ -159,7 +173,7 @@ public final class MediaSync {
             var queue = download[...]
             while !queue.isEmpty {
                 let names = Array(queue.prefix(MediaSync.maxFilesPerZip))
-                let zipData = try await http.post("msync/downloadFiles", try Schema11.encode(["files": names]))
+                let zipData = try await post("msync/downloadFiles", try Schema11.encode(["files": names]))
                 let got = try extract(zipData)
                 guard !got.isEmpty else { throw SyncError.serverMessage("AnkiWeb sent an empty media batch.") }
                 added += got
@@ -252,12 +266,5 @@ public final class MediaSync {
         try w.add("_meta", try Schema11.encode(meta))
         try w.finish()
         return try Data(contentsOf: tmp)
-    }
-}
-
-extension SyncHTTP {
-    func json(_ path: String, _ body: Data) async throws -> Any {
-        let data = try await post(path, body)
-        return data.isEmpty ? NSNull() : try Schema11.decode(data)
     }
 }
