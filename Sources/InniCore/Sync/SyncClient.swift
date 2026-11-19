@@ -99,7 +99,8 @@ final class SyncHTTP: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
             throw Redirect(location: to.absoluteURL)
         default:
             let text = String(decoding: Zstd.isCompressed(data) ? ((try? Zstd.decompress(data)) ?? data) : data, as: UTF8.self)
-            throw SyncError.http(http.statusCode, String(text.prefix(300)))
+            let detail = text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)
+            throw SyncError.http(http.statusCode, detail.isEmpty ? path : "\(path): \(detail)")
         }
     }
 
