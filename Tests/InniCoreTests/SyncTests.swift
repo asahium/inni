@@ -165,3 +165,38 @@ final class SyncTests: XCTestCase {
         col.close()
     }
 }
+
+/// The HTTP client on its own, against a throwaway Python server.
+final class SyncHTTPTests: XCTestCase {
+    func testClientThatSentNothingIsReleasedSafely() async throws {
+        for _ in 0..<20 { _ = SyncHTTP(auth: SyncAuth(hostKey: "k")) }
+        try await Task.sleep(for: .milliseconds(300))
+    }
+
+    func testRedirectMovesTheEndpoint() async throws {
+        let port = Int.random(in: 30000...39999)
+        let script = """
+            import http.server, json, time
+            class H(http.server.BaseHTTPRequestHandler):
+                def do_POST(self):
+                    self.rfile.read(int(self.headers.get("content-length") or 0))
+                    if not self.path.startswith("/shard/"):
+                        self.send_response(308); self.send_header("Location", "http://127.0.0.1:\(port)/shard/"); self.end_headers(); return
+                    body = json.dumps({"mod": 5, "scm": 1, "usn": 2, "ts": int(time.time()), "empty": False, "cont": True}).encode()
+                    self.send_response(200); self.end_headers(); self.wfile.write(body)
+                def log_message(self, *a): pass
+            http.server.HTTPServer(("127.0.0.1", \(port)), H).serve_forever()
+            """
+        let server = Process()
+        server.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        server.arguments = ["python3", "-c", script]
+        try server.run()
+        defer { server.terminate() }
+        try await Task.sleep(for: .milliseconds(800))
+
+        let http = SyncHTTP(auth: SyncAuth(hostKey: "k", endpoint: URL(string: "http://127.0.0.1:\(port)/")!))
+        let meta = try await Collection.remoteSyncMeta(http)
+        XCTAssertEqual(meta.modified, 5)
+        XCTAssertEqual(http.endpoint.absoluteString, "http://127.0.0.1:\(port)/shard/")
+    }
+}

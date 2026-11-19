@@ -46,19 +46,30 @@ public enum SyncError: Error, LocalizedError, Equatable {
 }
 
 /// One sync session against an endpoint: zstd-compressed JSON over POST with the `anki-sync` header.
-final class SyncHTTP: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+final class SyncHTTP: @unchecked Sendable {
     static let ankiWeb = URL(string: "https://sync.ankiweb.net/")!
     static let protocolVersion = 11
 
     var endpoint: URL
     let hostKey: String
     let sessionKey: String
-    private lazy var session: URLSession = {
+
+    private static let session: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 60
         cfg.timeoutIntervalForResource = 60 * 60
-        return URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
+        cfg.httpShouldSetCookies = false
+        return URLSession(configuration: cfg)
     }()
+
+    /// The protocol wants the new endpoint remembered, so redirects go back to the caller.
+    private final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
+    }
+    private static let noRedirects = NoRedirects()
 
     /// AnkiWeb rejects `sync/meta` with a 400 unless these match the format of a released Anki build.
     static let ankiVersion = "26.09.4", ankiBuildHash = "c06370ff"
@@ -84,8 +95,6 @@ final class SyncHTTP: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         sessionKey = s
     }
 
-    deinit { session.finishTasksAndInvalidate() }
-
     struct Redirect: Error { let location: URL }
 
     /// Returns the decompressed response body.
@@ -97,7 +106,7 @@ final class SyncHTTP: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         let header: [String: Any] = ["v": SyncHTTP.protocolVersion, "k": hostKey, "c": SyncHTTP.clientVersion, "s": sessionKey]
         req.setValue(String(decoding: try Schema11.encode(header), as: UTF8.self), forHTTPHeaderField: "anki-sync")
         req.httpBody = Zstd.frame(body)
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await Self.session.data(for: req, delegate: Self.noRedirects)
         guard let http = response as? HTTPURLResponse else { throw SyncError.http(0, "no response") }
         switch http.statusCode {
         case 200:
@@ -120,12 +129,6 @@ final class SyncHTTP: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         let data = try await post(path, try Schema11.encode(body))
         if data.isEmpty { return NSNull() }
         return try Schema11.decode(data)
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        // The protocol wants the new endpoint remembered, so hand redirects back to the caller.
-        completionHandler(nil)
     }
 }
 
