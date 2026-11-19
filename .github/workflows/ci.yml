@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths: ["Sources/**", "Tests/**", "iOS/**", "Package.swift", "scripts/**", ".github/workflows/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - name: Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          xcodebuild -version
+          swift --version
+      - name: Anki reference
+        run: |
+          python3 -m venv /tmp/anki-venv
+          /tmp/anki-venv/bin/pip install --quiet anki
+          /tmp/anki-venv/bin/python scripts/oracle_synthetic.py /tmp/oracle
+      - name: Test
+        run: INNI_ORACLE=/tmp/oracle swift test
+      - name: Verify output with Anki
+        run: make verify ANKI_PY=/tmp/anki-venv/bin/python
+      - name: Sync with Anki's sync server
+        run: make sync-test ANKI_PY=/tmp/anki-venv/bin/python
+      - name: Bundle macOS app
+        run: ./scripts/bundle.sh release
+      - name: Build iOS app (simulator, unsigned)
+        run: |
+          brew install xcodegen
+          cd iOS && xcodegen generate --quiet
+          xcodebuild -project InniMobile.xcodeproj -scheme InniMobile \
+            -destination 'generic/platform=iOS Simulator' -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO build -quiet
