@@ -52,16 +52,20 @@ final class SyncHTTP: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         return URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
     }()
 
-    static var clientVersion: String {
+    /// AnkiWeb rejects `sync/meta` with a 400 unless these match the format of a released Anki build.
+    static let ankiVersion = "26.09.4", ankiBuildHash = "c06370ff"
+
+    static var platform: String {
         #if os(iOS)
-        let platform = "ios"
+        "ios"
         #else
-        let platform = "macos"
+        "macos"
         #endif
-        return "26.09.4,inni,\(platform)"
     }
 
-    static var longClientVersion: String { "inni,0.1 (26.09.4),\(clientVersion.split(separator: ",").last ?? "")" }
+    static var clientVersion: String { "\(ankiVersion),\(ankiBuildHash),\(platform)" }
+
+    static var longClientVersion: String { "anki,\(ankiVersion) (\(ankiBuildHash)),\(platform)" }
 
     init(auth: SyncAuth) {
         endpoint = auth.endpoint ?? SyncHTTP.ankiWeb
