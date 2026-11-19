@@ -1,5 +1,7 @@
 # Inni - an Anki-compatible flashcard app for macOS and iPhone
 
+[![CI](https://github.com/asahium/inni/actions/workflows/ci.yml/badge.svg)](https://github.com/asahium/inni/actions/workflows/ci.yml)
+
 Inni is a native spaced-repetition app that works on Anki's own files. It opens a `collection.anki2` directly, imports and exports `.apkg` and `.colpkg`, and schedules and renders cards the way Anki does, so you can switch between the two at any time. It is written in Swift with no dependencies: the app uses about 30 MB of memory and no CPU while idle.
 
 What it does:
