@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Test
+        run: swift test
+      - name: Build DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" BUILD="${{ github.run_number }}" ./scripts/dmg.sh
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/Inni-*.dmg \
+            --title "Inni ${GITHUB_REF_NAME#v}" --generate-notes
+      - name: Bump Homebrew cask
+        env:
+          # Fine-grained token with contents: write on asahium/homebrew-tap; the step is skipped without it.
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          [ -n "$TAP_TOKEN" ] || { echo "No HOMEBREW_TAP_TOKEN, skipping"; exit 0; }
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA=$(shasum -a 256 build/Inni-"$VERSION".dmg | cut -d' ' -f1)
+          git clone -q "https://x-access-token:$TAP_TOKEN@github.com/asahium/homebrew-tap.git" tap
+          cd tap
+          sed -i '' -e "s/^  version \".*\"/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" Casks/inni.rb
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -qam "inni $VERSION"
+          git push -q
