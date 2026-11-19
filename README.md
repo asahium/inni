@@ -20,7 +20,7 @@ What it does:
 The test suite compares Inni with the real Anki (the `anki` Python package) on the same collections:
 
 - due counts per deck, rendered questions and answers, and FSRS memory states match;
-- next intervals for every rating agree within Anki's fuzz range on synthetic SM-2 and FSRS collections (1600/1600 for SM-2, 1588/1600 for FSRS: Anki's load balancer is not implemented yet);
+- on synthetic SM-2 and FSRS collections with cards in every state, the next interval Anki picks for each rating is one Inni's formulas give for some fuzz value (Inni draws fuzz from its own generator, so the picks themselves differ). SM-2 matches on every card; under FSRS up to 1% of cards with a memory state but no review history still fall outside, and the cause is open;
 - `make verify` writes a collection and packages with Inni, then has Anki open the collection, run Check Database, and import the `.apkg` and `.colpkg`;
 - `make sync-test` starts Anki's own sync server and syncs Inni against Anki's backend as the second device: download into an empty collection, changes of every kind both ways, media both ways, and a schema change that forces a full upload, which Anki then downloads and checks. `SYNC_LARGE=<collection.anki2>` adds a run with a large collection (17,000 notes: full upload 0.1 s, a sync of 1,500 changes 0.04 s against a local server);
 - every note type, deck and preset in the fixtures converts to the sync format and back without a single changed field.
