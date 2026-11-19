@@ -2,7 +2,11 @@
 
 [![CI](https://github.com/asahium/inni/actions/workflows/ci.yml/badge.svg)](https://github.com/asahium/inni/actions/workflows/ci.yml)
 
-[Website](https://asahium.github.io/inni/) · [Download](https://github.com/asahium/inni/releases/latest) · `brew install --cask asahium/tap/inni`
+[Website](https://asahium.github.io/inni/) · [Download](https://github.com/asahium/inni/releases/latest)
+
+```sh
+brew tap asahium/tap && brew trust --cask asahium/tap/inni && brew install --cask asahium/tap/inni
+```
 
 Inni is a native spaced-repetition app that works on Anki's own files. It opens a `collection.anki2` directly, imports and exports `.apkg` and `.colpkg`, and schedules and renders cards the way Anki does, so you can switch between the two at any time. It is written in Swift with no dependencies: the app uses about 30 MB of memory and no CPU while idle.
 
