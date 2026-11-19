@@ -293,7 +293,7 @@ struct StatusBar: View {
 
     private var sync: String {
         if model.syncing { return "syncing…" }
-        if model.mediaSyncing { return "syncing media…" }
+        if model.mediaSyncing || model.mediaSyncPending { return model.mediaStatus?.label.lowercased() ?? "syncing media…" }
         return model.syncUsername == nil ? "not synced" : "AnkiWeb"
     }
 

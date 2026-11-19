@@ -73,6 +73,24 @@ struct DeckListView: View {
                 }
                 .listRowBackground(Nord.raised)
             }
+            if let status = model.mediaStatus {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(status.label)
+                            Spacer()
+                            if let f = status.fraction { Text(f.formatted(.percent.precision(.fractionLength(0)))) }
+                        }
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(Nord.secondary)
+                        if model.mediaSyncing {
+                            if let f = status.fraction { ProgressView(value: f) } else { ProgressView(value: 0).opacity(0.4) }
+                        }
+                    }
+                    .tint(Nord.accent)
+                    .listRowBackground(Nord.raised)
+                }
+            }
         }
         .nordList()
         #endif

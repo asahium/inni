@@ -32,9 +32,16 @@ public final class MediaSync {
 
     deinit { db.close() }
 
-    public struct Progress: Sendable {
+    public struct Progress: Sendable, Equatable {
         public var downloaded = 0, uploaded = 0, removed = 0
+        /// Server changes handled so far, out of `changes`: the gap between the local and the server media USN.
+        public var checked = 0, changes = 0
+        /// Local files sent so far, out of `toSend`.
+        public var sent = 0, toSend = 0
     }
+
+    /// Called after every batch, off the main thread.
+    public var onProgress: (@Sendable (Progress) -> Void)?
 
     /// `serverUSN` from the collection sync skips the handshake.
     @discardableResult
@@ -50,11 +57,14 @@ public final class MediaSync {
             remoteUSN = Schema11.int(begin["usn"])
         }
         var acted = false
+        progress.changes = max(0, remoteUSN - lastUSN)
+        progress.toSend = try db.scalar("select count() from media where dirty = 1") ?? 0
+        onProgress?(progress)
         if lastUSN != remoteUSN {
             try await fetchChanges(from: lastUSN, &progress)
             acted = true
         }
-        if try db.scalar("select 1 from media where dirty = 1 limit 1") != nil {
+        if progress.toSend > 0 {
             try await sendChanges(&progress)
             acted = true
         }
@@ -169,6 +179,8 @@ public final class MediaSync {
                 try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
             }
             progress.removed += delete.count
+            progress.checked += batch.count - download.count
+            onProgress?(progress)
             var added: [(String, String, Int)] = []
             var queue = download[...]
             while !queue.isEmpty {
@@ -179,6 +191,8 @@ public final class MediaSync {
                 added += got
                 queue = queue.dropFirst(got.count)
                 progress.downloaded += got.count
+                progress.checked += got.count
+                onProgress?(progress)
             }
             let dirMod = folderMtime()
             try db.transaction {
@@ -245,6 +259,8 @@ public final class MediaSync {
             }
             progress.uploaded += done.filter { $0.data != nil }.count
             progress.removed += done.filter { $0.data == nil }.count
+            progress.sent += done.count
+            onProgress?(progress)
             if processed == 0 { break }
         }
     }

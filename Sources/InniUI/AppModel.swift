@@ -54,7 +54,23 @@ public final class AppModel {
     public private(set) var syncing = false
     public private(set) var mediaSyncing = false
     /// Media sync stopped on a network error; it continues the next time the app becomes active.
-    private var mediaSyncPending = false
+    public private(set) var mediaSyncPending = false
+    public private(set) var mediaProgress: MediaSync.Progress?
+
+    /// What media sync is doing, e.g. "Media 1,250 of 15,909", and how far along it is.
+    public var mediaStatus: (label: String, fraction: Double?)? {
+        if mediaSyncing {
+            guard let p = mediaProgress else { return ("Checking media…", nil) }
+            if p.checked < p.changes {
+                return ("Media \(p.checked.formatted()) of \(p.changes.formatted())", Double(p.checked) / Double(p.changes))
+            }
+            if p.sent < p.toSend {
+                return ("Uploading media \(p.sent.formatted()) of \(p.toSend.formatted())", Double(p.sent) / Double(p.toSend))
+            }
+            return ("Checking media…", nil)
+        }
+        return mediaSyncPending ? ("Media sync paused, continues when back online", nil) : nil
+    }
     public var loginShown = false
     public var fullSyncChoice: FullSyncChoice?
 
@@ -386,14 +402,18 @@ public final class AppModel {
         guard let url = col?.url, let auth = account?.auth, !mediaSyncing,
               UserDefaults.standard.object(forKey: "syncMedia") as? Bool ?? true else { return }
         mediaSyncing = true
+        mediaSyncPending = false
+        mediaProgress = nil
         Task {
             let background = BackgroundTime("Media sync")
             defer {
                 background.end()
                 mediaSyncing = false
+                mediaProgress = nil
             }
             do {
                 let media = try MediaSync(collectionURL: url, auth: auth)
+                media.onProgress = { p in Task { @MainActor in self.mediaProgress = p } }
                 try await media.sync(serverUSN: serverUSN)
                 revision += 1
             } catch {
